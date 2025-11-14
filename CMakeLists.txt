@@ -1,4 +1,14 @@
 cmake_minimum_required(VERSION 3.15)
+
+# Platform-specific settings (must be before project())
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum OS X deployment version")
+    # Disable code signing for local development
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "")
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO")
+    set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO")
+endif()
+
 project(MiniMicro2 VERSION 0.1.0 LANGUAGES CXX C)
 
 # Set C++ standard
@@ -10,11 +20,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Options
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
-
-# Platform-specific settings
-if(APPLE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum OS X deployment version")
-endif()
 
 # Add subdirectories for dependencies
 add_subdirectory(external/raylib)
@@ -41,10 +46,17 @@ file(GLOB_RECURSE HEADERS
 # Create executable
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 
+# Disable app sandboxing for macOS development
+if(APPLE)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        XCODE_ATTRIBUTE_ENABLE_HARDENED_RUNTIME NO
+    )
+endif()
+
 # Link libraries
 target_link_libraries(${PROJECT_NAME}
     raylib
-    miniscript
+    miniscript-cpp
 )
 
 # Platform-specific linking

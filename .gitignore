@@ -80,6 +80,7 @@ MiniMicro2
 *.su
 *.idb
 *.pdb
+.claude
 
 # OS files
 .DS_Store
