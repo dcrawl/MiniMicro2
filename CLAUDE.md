@@ -1,106 +1,109 @@
 # Notes for Claude
 
 ## Project Context
-This is MiniMicro2 - a C++/Raylib port of Mini Micro (originally Unity/C#). The user (Joe Strout) is the original author of Mini Micro and MiniScript. He's porting it to be more cross-platform and performant.
+This is MiniMicro2 — **Mini Micro 2**, a rewrite of Mini Micro (originally
+Unity/C#).  The user (Joe Strout) is the original author of Mini Micro and
+MiniScript.
 
-**Original source for reference:** `/Users/jstrout/Documents/svnrepo/stroutandsons/MiniScript/MiniMicro/`
+Mini Micro 2 is written in MiniScript, running on the **raylib-miniscript**
+host.  There is nothing here to compile.  An earlier C++/Raylib implementation
+lived in `src/` and `include/`; it is now in `archive/` and no longer builds.
+Don't reach for it except as a reference for how something used to work.
+
+**Reference sources:**
+- Unity original: `/Users/jstrout/Documents/svnrepo/stroutandsons/MiniScript/MiniMicro/`
+- The C++ attempt: `archive/` in this repo
+- Soda (shares our engine layer): `../soda`
+- The host: `../raylib-miniscript` (see its `API_DOC.md` for intrinsics)
+
+## Layout
+
+```
+assets/
+  main.ms      entry point; the host runs this at startup
+  lib/         -> ../../soda/lib   (symlink; engine layer, SHARED WITH SODA)
+  mm/          the Mini Micro shell: REPL, editor, file browser
+  sys/         -> ../../minimicro-sysdisk/sys  (symlink; the /sys disk)
+  images/ sounds/ fonts/
+archive/       the old C++ implementation; dead
+raylib-miniscript -> ../raylib-miniscript/build/raylib-miniscript  (symlink)
+```
+
+`lib`, `sys`, and `raylib-miniscript` are gitignored — the right target differs
+per machine.
+
+## Running it
+
+```bash
+./raylib-miniscript          # no argument: runs assets/main.ms
+```
+
+The host resolves a missing script argument as `assets/main.ms` in the working
+directory first, then beside the executable (which is how a packaged app
+works).  It opens a window, so run it in the background and kill it rather than
+blocking a tool call; `sleep` then check the log for errors.
 
 ## Important Technical Details
 
-### Build System
-- **CMake generates Xcode projects** - always regenerate after code changes: `cmake -G Xcode ..`
-- Working directory: `/Users/jstrout/Documents/svnrepo/MiniMicro2/build`
-- User works in Xcode, not command line builds
-- Bundle identifier: `org.miniscript.minimicro2`
+### The shared engine layer
+`assets/lib` is a symlink to Soda's `lib/`.  **Editing anything there changes
+Soda too.**  Keep changes no-ops for Soda (sensible defaults that preserve its
+current behavior), and put Mini Micro-specific code in `assets/mm/` instead
+where you can.  Code that must differ at runtime switches on
+`version.hostName` — `"Mini Micro"` here, `"Soda"` there.
 
-### Platform Constraints
-- **macOS 10.13 minimum** - NO std::filesystem (requires 10.15)
-- Use POSIX APIs instead (stat, getcwd, etc.)
-- All file paths must be absolute in tools
+### The version map
+The host's built-in `version` map is **frozen**, so `main.ms` shadows it with a
+global built by merging: `globals.version = version + {...}`.  Soda does the
+same in `soda.ms`, guarded so the host application wins if it got there first.
 
-### Display System Specifics
-- **Bottom-up coordinates** for text (row 0 at bottom) - Mini Micro convention
-- **68x26 character grid** for TextDisplay
-- **Character spacing**: 14px horizontal, 24px vertical (characters overlap slightly)
-- **Display offset**: 32px X, 34px Y from window edge
-- **Layer ordering**: 7→0 rendered (0 is on top)
-- **ScreenFont uses custom shader** - foreground/background separation based on texture alpha
+### Import path
+`main.ms` sets `MS_IMPORT_PATH` to `$MS_SCRIPT_DIR : <assets>/mm : <assets>/lib`.
+The last two are absolute paths resolved once at boot, deliberately: the host
+repoints `MS_SCRIPT_DIR` at every script it runs, and running user programs is
+Mini Micro's whole job.  The first entry stays a live variable so a user program
+can import modules sitting next to it.
 
-### Input Handling
-- **Keyboard layout aware** - use `charToKeyCode` mapping (via `GetKeyName`)
-- User uses Dvorak layout - physical key codes don't work for Ctrl+key
-- Must call `console.InitKeyboardMapping()` after creation
-- `GetCharPressed()` returns 0 when modifiers held - handle Ctrl+key separately
+Watch for shadowing: `$MS_SCRIPT_DIR` comes first, so a file named after an
+engine module overrides it, and the failure surfaces somewhere unrelated.
 
-### Resources
-- **Font atlas**: `resources/images/ScreenFont.png` (16x16 grid)
-- **Shaders**: `resources/shaders/screenfont.vs/fs` (must load at startup)
-- **ResourcePath system** handles dev vs. bundle paths automatically
-- Fonts/images/sounds all use `GetResourceFile()` helper
+### The screen rect and the bezel
+The window is 1024x768; the Mini Micro screen is the 960x640 area inside the
+bezel image, at (32, 34).  `Display.screenLeft/screenTop/screenWidth/screenHeight`
+carry that; displays size and position themselves against those, never against
+`GetScreenWidth`/`GetScreenHeight`.  `_update` wraps `Display.RenderAll` in a
+`BeginMode2D` camera that translates by the rect's top-left, and `mouse.update`
+applies the inverse.  The bezel's insets are not symmetrical (thicker at the
+bottom, for the logo), so anything that centers itself must center on the rect.
 
-### STL Usage Policy
-See `docs/CPP_STL.md` for details. Quick reference:
-- ✅ Use: std::string, std::vector, std::unordered_map, std::function
-- ❌ Avoid: std::regex, iostreams, complex smart pointers
-- 🔀 Boundary: Use MiniScript types (SimpleString, etc.) at MiniScript interface
+Keep the `BeginMode2D` bracket tight around `RenderAll`: `PixelDisplay._beginDraw`
+and `ttFonts` call `BeginTextureMode`, which would bake the camera matrix into a
+render texture.
 
-### Code Style Observations
-- User prefers concise code
-- Tabs for indentation (auto-formatted)
-- K&R-ish brace style
-- Minimal comments - code should be clear
+### Display conventions (unchanged from Mini Micro)
+- **Bottom-up coordinates**: row 0 / y=0 at the bottom
+- **68x26 character grid**, 14px column spacing, 24px row spacing
+- **Layers 7→0 rendered**, so 0 is on top
+- Cell `backColor` defaults to transparent, not black
+
+### MiniScript 2 gotchas
+No assignment hooks, so Mini Micro properties that were assignable are setter
+methods here: `Display.setMode`, `text.setCursor`, `TileDisplay.setExtent`.
+Assigning to `.mode`, `.row`, `.column`, `.extent` silently does nothing.
+
+## Code Style
+- Tabs for indentation
+- Concise; minimal comments, and comments say *why*, not *what*
 - Don't add emojis unless requested
 
-## Key Gotchas
-
-1. **Shader loading** - Must load ScreenFont shader before creating TextDisplay
-2. **Cell background transparency** - Default backColor is BLANK (transparent), not BLACK
-3. **Row coordinate math** - `y = offsetY + (rows - 1 - row) * rowSpacing` for bottom-up
-4. **Resource bundling** - Files copied to `Contents/Resources/resources` in bundle
-5. **Working directory** - Xcode scheme set to project root via `CMAKE_SOURCE_DIR`
-
-## Architecture Overview
-See `docs/ARCHITECTURE.md` for full details.
-
-**Quick hierarchy:**
-```
-main.cpp
-  └─ Machine (owns 8 Display layers)
-       └─ Display (base class)
-            ├─ SolidColorDisplay
-            └─ TextDisplay (uses ScreenFont)
-  └─ Console (manages TextDisplay input)
-```
-
 ## Current Status
-- ✅ Basic display system working
-- ✅ TextDisplay with custom font rendering
-- ✅ Console with full line editing
-- ✅ Keyboard layout support
-- ⏳ MiniScript integration (not started)
-- ⏳ Other display types (Pixel, Sprite, Tile)
-
-## Next Steps (Likely)
-- Integrate MiniScript interpreter
-- Add remaining display types
-- Handle file I/O for MiniScript
-- Implement sprite/tile graphics
-- Add sound/music APIs
-
-## Useful Commands
-```bash
-# Regenerate Xcode project (from build dir)
-cmake -G Xcode ..
-
-# Find resource files
-ls ../resources/
-
-# Check font texture dimensions
-file ../resources/images/ScreenFont.png
-```
+- ✅ Host boots `assets/main.ms`; window, bezel, screen rect, camera offset
+- ✅ Displays, screen font, input via the shared engine layer
+- ⏳ The Mini Micro shell (`assets/mm/`): REPL, editor, file browser — not started
+- ⏳ File system: mapping `/sys` (read-only, in the bundle) and `/usr` (writable)
+- ⏳ Packaging: per-platform app bundles
 
 ## Reference Files to Check
-- Original Console.cs: `/Users/jstrout/Documents/svnrepo/stroutandsons/MiniScript/MiniMicro/Assets/Scripts/Console.cs`
-- Original TextDisplay.cs: Same directory
-- Original ScreenFont.cs: Same directory
-- When implementing new features, check Unity version first for guidance
+When implementing a Mini Micro feature, check the Unity version first:
+`.../MiniMicro/Assets/Scripts/` — `Shell.cs`, `Console.cs`, `TextDisplay.cs`,
+`ScreenFont.cs`.

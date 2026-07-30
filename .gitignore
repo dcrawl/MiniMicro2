@@ -85,3 +85,8 @@ MiniMicro2
 # OS files
 .DS_Store
 Thumbs.db
+
+# Development symlinks into sibling checkouts (see docs/BUILDING.md)
+assets/lib
+assets/sys
+raylib-miniscript
