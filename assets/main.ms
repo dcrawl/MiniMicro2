@@ -43,6 +43,9 @@ bezelColor = [218, 208, 185, 255]
 stickerTexture = raylib.LoadTexture("/hw/images/MiniMicroSticker.png")
 print "sticker: " + stickerTexture
 
+diskInsertedSound = raylib.LoadSound("/hw/sounds/disk-inserted.wav")
+diskEjectedSound = raylib.LoadSound("/hw/sounds/disk-ejected.wav")	// (for the shell's eject)
+
 import "importUtil"
 
 ensureImport ["color", "Image", "Sound", "Display", "SolidColorDisplay", "PixelDisplay",
@@ -93,6 +96,34 @@ window.setFullScreen = function(full=true)
 	raylib.ToggleFullscreen
 end function
 
+// Mounting a disk is the user's act, not a program's: a drop is the user
+// naming a target, exactly as a file picker would be.  The host reports base
+// names only and we mount by index, so no host path is named here or handed
+// back to script.  Clear the queue when done -- but only when done, since
+// mountDropped names an index into it, and it survives until the next drop, so
+// an unmountable file would otherwise retry every frame.
+//
+// Slot by index (first dropped item to /usr, second to /usr2) is what Mini
+// Micro 1 does.  file.dropPosition is the better answer once the bezel has real
+// disk slots to drop onto; it is in window coordinates, top-down, so it needs
+// the same transform mouse.update applies before comparing with anything drawn.
+_handleDrops = function
+	dropped = file.droppedFiles
+	if not dropped then return
+	print "Detected file drop: " + dropped
+	slots = ["usr", "usr2"]
+	for i in range(0, 1)
+		if i >= dropped.len then break
+		if file.mountDropped(i, slots[i]) then
+			raylib.PlaySound diskInsertedSound
+			print "Mounted " + dropped[i].name + " as " + slots[i]
+		else
+			print dropped[i].name + " is not a mountable disk"
+		end if
+	end for
+	file.clearDroppedFiles
+end function
+
 // updateCallbacks: a list of methods to call on every frame.  This includes standard
 // Soda update methods, but you may add your own methods to ensure they are invoked
 // at update time as well.
@@ -111,12 +142,15 @@ screenCamera = {"offsetX": Display.screenLeft, "offsetY": Display.screenTop,
    "targetX": 0, "targetY": 0, "rotation": 0, "zoom": 1}
 
 _update = function(beginEndRaylibDrawing = true)
+	// Not in updateCallbacks: that is a hook a user program may replace, and
+	// disks have to keep mounting whatever is running.
+	_handleDrops
 	if beginEndRaylibDrawing then raylib.BeginDrawing
 	raylib.BeginMode2D screenCamera
 	Display.RenderAll
 	raylib.EndMode2D
 	raylib.DrawTexture bezelTexture, 0, 0, bezelColor
-	for f in updateCallbacks; f; end for
+	for f in _updateCallbacks; f; end for
 	raylib.DrawTextureEx stickerTexture, 
 	  [window.width - 56 - 32, window.height - 42 - 24],
 	  0, 64 / stickerTexture.width, raylib.WHITE

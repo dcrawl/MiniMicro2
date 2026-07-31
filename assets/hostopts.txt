@@ -1,0 +1,8 @@
+# Host options: who this application is, read by the host at boot before any
+# script runs.  appId names the app data directory holding prefs.txt (which
+# remembers the mounted user disks), so it must be per-application -- without
+# it we would share preferences with every other raylib-miniscript build.
+# defaultDisk is a folder created under ~/Documents and mounted as /usr on
+# first run, or when the remembered disk is gone.
+appId=Mini Micro
+defaultDisk=Mini Micro

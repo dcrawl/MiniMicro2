@@ -21,6 +21,7 @@ Don't reach for it except as a reference for how something used to work.
 ```
 assets/
   main.ms      entry point; the host runs this at startup
+  hostopts.txt appId and default disk; read by the host before any script runs
   lib/         -> ../../soda/lib   (symlink; engine layer, SHARED WITH SODA)
   mm/          the Mini Micro shell: REPL, editor, file browser
   hw/          the /hw disk: images/ sounds/ fonts/ -- our own resources
@@ -73,8 +74,19 @@ and `lib/` off every disk, so a user program cannot read the shell's own source.
 Anything put directly in `assets/` is invisible to script; anything dropped in
 `assets/hw/` is readable by any program, so put resources there and nothing else.
 
-`/usr` and `/usr2` start unmounted; mounting one will be the user's choice,
-through a file picker, never a program's.
+- `/usr`, `/usr2` — the user disks, writable.  What is mounted is remembered in
+  `<app data dir>/prefs.txt` and comes back at boot; `assets/hostopts.txt` names
+  the app data directory (`appId`) and the folder under `~/Documents` to create
+  and mount as `/usr` on first run (`defaultDisk`).  Without that file we would
+  share preferences with every other raylib-miniscript build.
+
+Mounting a user disk is always the user's choice, never a program's: script may
+*request* a mount but can never name the target.  Drag and drop is the route
+that works today — `handleDrops` in `main.ms`, called from `_update` — and a
+native file picker is still to come.  `file.mountAppData` mounts a subfolder of
+our own app data directory, which a program may name because it cannot escape
+it.  `-usr <path>` and `-usr2 <path>` on the command line are for testing and
+are deliberately not remembered.
 
 `main.ms` calls `file.enterSandbox` as its last act of setup.  That is a
 **one-way latch** — there is no intrinsic to leave, and there must never be
@@ -87,10 +99,29 @@ So anything that must touch a real host path has to happen **above** the
 `file.enterSandbox` line in `main.ms`.  Rejections are logged to stderr as
 `[fs] rejected ...`; check there first when a path mysteriously fails.
 
-Still to come on the host side: the `file` module and the remaining raylib
-loaders are not yet routed through the resolver, so they still see real host
-paths after the latch.  Don't rely on that — it is a gap being closed, not a
-feature.
+The `file` module is fully routed.  Two things differ from Mini Micro 1:
+`f.position` is not assignable (MS2 has no assignment hooks) — use `f.seek pos`;
+and a file handle buffers in memory, so **an unclosed handle loses its writes**.
+
+The raylib bindings are routed too, and the ones that cannot be made safe —
+`GetWorkingDirectory`, `GetApplicationDirectory`, `ChangeDirectory`,
+`TakeScreenshot`, `OpenURL`, `LoadDroppedFiles`, the `Set*FileCallback` hooks —
+refuse once sandboxed, returning empty rather than raising.  `import` searches
+only the directories frozen at the latch, so setting `env.MS_IMPORT_PATH`
+afterwards does nothing.  `http.post` accepts only http and https URLs.
+
+raylib's `LoadDroppedFiles` returns real host paths, so it is refused; the
+sandboxed replacement is in the `file` module — `file.droppedFiles` (base names
+and an `isDirectory` flag, never a path), `file.dropPosition`,
+`file.mountDropped index, "usr"`, and `file.clearDroppedFiles`.  The queue
+persists until the next drop or an explicit clear, so a handler must clear it or
+it will act on the same drop every frame — but **only after mounting**, since
+`mountDropped` names an index into that same queue and silently fails (returns
+false, as if the disk were unmountable) once it has been cleared.
+**Modifier keys are not readable at
+drop time** (the drag comes from another application, so this window has had no
+key events); position is the only context a drop carries.  A dropped file that
+is not a folder cannot be mounted or read at all until the zip backend lands.
 
 ### Import path
 `main.ms` sets `MS_IMPORT_PATH` to `$MS_SCRIPT_DIR : <assets>/mm : <assets>/lib`.
@@ -137,7 +168,8 @@ Assigning to `.mode`, `.row`, `.column`, `.extent` silently does nothing.
 - ⏳ The Mini Micro shell (`assets/mm/`): REPL, editor, file browser — not started
 - ✅ File system: `/hw` and `/sys` mounted read-only at boot; `file.enterSandbox`
   latched at the end of `main.ms`
-- ⏳ File system: `/usr` and `/usr2` (writable, user-mounted through a picker)
+- ✅ File system: `/usr` and `/usr2` mountable by drag and drop, remembered in
+  prefs; ⏳ native file picker, ⏳ `.minidisk` (zip) disks
 - ⏳ Packaging: per-platform app bundles
 
 ## Reference Files to Check
