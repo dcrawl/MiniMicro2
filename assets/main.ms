@@ -32,12 +32,15 @@ raylib.InitWindow 1024, 768
 raylib.SetWindowTitle "Mini Micro 2"
 raylib.SetTargetFPS 60
 
-bootupSound = raylib.LoadSound("assets/sounds/startup-chime.wav")
+// Our own resources live on /hw, the hardware disk: the host mounts this
+// file's directory there at boot.  These used to be written relative to the
+// working directory, which broke for a packaged app launched from the Finder.
+bootupSound = raylib.LoadSound("/hw/sounds/startup-chime.wav")
 raylib.PlaySound bootupSound
 
-bezelTexture = raylib.LoadTexture("assets/images/3DBezel.png")
+bezelTexture = raylib.LoadTexture("/hw/images/3DBezel.png")
 bezelColor = [218, 208, 185, 255]
-stickerTexture = raylib.LoadTexture("assets/images/MiniMicroSticker.png")
+stickerTexture = raylib.LoadTexture("/hw/images/MiniMicroSticker.png")
 print "sticker: " + stickerTexture
 
 import "importUtil"
@@ -135,6 +138,16 @@ globals.wait = function(duration=1)
 		outer._update
 	end while
 end function
+
+// Lock the file system down.  From here on only mounted disks exist: /sys and
+// the hidden /hw, plus whatever the user chooses to mount as /usr or /usr2.
+// No path a program can name reaches anything else.
+//
+// This is deliberately the last thing boot does, and it is one-way -- there is
+// no intrinsic to leave.  Everything above needed the unrestricted host: the
+// import path is built from real directories, and the resources above load
+// through /hw only because the host mounted it before running this file.
+file.enterSandbox
 
 gfx.drawRect 0, 0, 960, 640, color.lime
 gfx.line 0, 0, 960, 640, color.lime

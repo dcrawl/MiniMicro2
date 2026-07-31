@@ -23,8 +23,8 @@ assets/
   main.ms      entry point; the host runs this at startup
   lib/         -> ../../soda/lib   (symlink; engine layer, SHARED WITH SODA)
   mm/          the Mini Micro shell: REPL, editor, file browser
+  hw/          the /hw disk: images/ sounds/ fonts/ -- our own resources
   sys/         -> ../../minimicro-sysdisk/sys  (symlink; the /sys disk)
-  images/ sounds/ fonts/
 archive/       the old C++ implementation; dead
 raylib-miniscript -> ../raylib-miniscript/build/raylib-miniscript  (symlink)
 ```
@@ -56,6 +56,41 @@ where you can.  Code that must differ at runtime switches on
 The host's built-in `version` map is **frozen**, so `main.ms` shadows it with a
 global built by merging: `globals.version = version + {...}`.  Soda does the
 same in `soda.ms`, guarded so the host application wins if it got there first.
+
+### The file system and the sandbox
+Paths are virtual and always `/`-separated.  The host mounts two disks before
+running `main.ms`:
+
+- `/hw` — the hardware disk: `assets/hw`, read-only.  Our own resources (bezel,
+  sticker, screen font, boot chime) load from `/hw/...`.  It is **hidden**: it
+  will not appear in a listing of `/`.  Undocumented, not secret.
+- `/sys` — `assets/sys`, read-only.  Ships from the minimicro-sysdisk repo on
+  its own release cycle, which is why it is not merged into `/hw`.
+
+Each disk is its own subdirectory of `assets/`, and the host mounts only those
+named subdirectories — never `assets/` itself.  That keeps `main.ms`, `mm/`,
+and `lib/` off every disk, so a user program cannot read the shell's own source.
+Anything put directly in `assets/` is invisible to script; anything dropped in
+`assets/hw/` is readable by any program, so put resources there and nothing else.
+
+`/usr` and `/usr2` start unmounted; mounting one will be the user's choice,
+through a file picker, never a program's.
+
+`main.ms` calls `file.enterSandbox` as its last act of setup.  That is a
+**one-way latch** — there is no intrinsic to leave, and there must never be
+one.  Before it, host paths work normally (boot needs that: the import path is
+built from real directories).  After it, only mounted disks exist, and any
+other path simply does not exist — no distinguishable "permission denied",
+because that would let a program map the host file system by probing.
+
+So anything that must touch a real host path has to happen **above** the
+`file.enterSandbox` line in `main.ms`.  Rejections are logged to stderr as
+`[fs] rejected ...`; check there first when a path mysteriously fails.
+
+Still to come on the host side: the `file` module and the remaining raylib
+loaders are not yet routed through the resolver, so they still see real host
+paths after the latch.  Don't rely on that — it is a gap being closed, not a
+feature.
 
 ### Import path
 `main.ms` sets `MS_IMPORT_PATH` to `$MS_SCRIPT_DIR : <assets>/mm : <assets>/lib`.
@@ -100,7 +135,9 @@ Assigning to `.mode`, `.row`, `.column`, `.extent` silently does nothing.
 - ✅ Host boots `assets/main.ms`; window, bezel, screen rect, camera offset
 - ✅ Displays, screen font, input via the shared engine layer
 - ⏳ The Mini Micro shell (`assets/mm/`): REPL, editor, file browser — not started
-- ⏳ File system: mapping `/sys` (read-only, in the bundle) and `/usr` (writable)
+- ✅ File system: `/hw` and `/sys` mounted read-only at boot; `file.enterSandbox`
+  latched at the end of `main.ms`
+- ⏳ File system: `/usr` and `/usr2` (writable, user-mounted through a picker)
 - ⏳ Packaging: per-platform app bundles
 
 ## Reference Files to Check
