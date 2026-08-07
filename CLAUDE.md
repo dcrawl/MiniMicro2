@@ -165,7 +165,11 @@ Assigning to `.mode`, `.row`, `.column`, `.extent` silently does nothing.
 ## Current Status
 - ✅ Host boots `assets/main.ms`; window, bezel, screen rect, camera offset
 - ✅ Displays, screen font, input via the shared engine layer
-- ⏳ The Mini Micro shell (`assets/mm/`): REPL, editor, file browser — not started
+- ✅ The Mini Micro shell (`assets/mm/`): `Console.ms` (line editing) and
+  `Shell.ms` (the REPL) work.  The shell runs everything in a child `Interp`
+  (a host class; see `../raylib-miniscript/notes/HOSTING_MS.md`) seeded from
+  our globals, stepped one 30 ms slice per frame.
+- ⏳ Shell: booting `/sys/startup.ms`, autocomplete, editor, file browser
 - ✅ File system: `/hw` and `/sys` mounted read-only at boot; `file.enterSandbox`
   latched at the end of `main.ms`
 - ✅ File system: `/usr` and `/usr2` mountable by drag and drop, remembered in

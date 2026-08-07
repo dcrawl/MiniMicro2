@@ -101,6 +101,7 @@ Console._inputIndex = 0			// cursor position within _inputBuf
 Console._suggestion = null		// faded text shown ahead of the cursor
 Console._historyIndex = 0
 Console._blinkStart = 0
+Console._lineReady = false		// a committed line is waiting to be taken
 
 Console._selecting = false		// mouse is dragging out a selection
 Console._hasSelection = false
@@ -199,6 +200,7 @@ end function
 
 Console.startInput = function
 	d = self.display
+	self._lineReady = false
 	self._clearSelection
 	self._inputStartRow = d.row
 	self._inputStartCol = d.column
@@ -221,12 +223,25 @@ Console.commitInput = function
 	self.display.hideCursor
 	self.display.nextLine
 	self._inInputMode = false
+	self._lineReady = true
 	if @self.onInputDone != null then self.onInputDone self._inputBuf
 end function
 
 Console.abortInput = function
 	self._inInputMode = false
+	self._lineReady = false
 	self.display.hideCursor
+end function
+
+// The non-blocking counterpart of inputLine, for a shell that owns the frame
+// loop: ask every frame whether a line has been committed, and take it.
+Console.lineReady = function
+	return self._lineReady
+end function
+
+Console.takeLine = function
+	self._lineReady = false
+	return self._inputBuf
 end function
 
 Console.addToHistory = function(input)
@@ -242,6 +257,7 @@ Console.inputLine = function(prompt="")
 	while self._inInputMode
 		yield
 	end while
+	self._lineReady = false
 	return self._inputBuf
 end function
 

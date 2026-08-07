@@ -49,7 +49,7 @@ diskEjectedSound = raylib.LoadSound("/hw/sounds/disk-ejected.wav")	// (for the s
 import "importUtil"
 
 ensureImport ["color", "Image", "Sound", "Display", "SolidColorDisplay", "PixelDisplay",
-  "SpriteDisplay", "TileDisplay", "TextDisplay", "mouse", "key", "Console"]
+  "SpriteDisplay", "TileDisplay", "TextDisplay", "mouse", "key", "Console", "Shell"]
 
 // Our screen is the 960x640 area framed by the bezel, not the whole window.
 // Tell the display layer where that is; everything sizes and centers itself
@@ -198,10 +198,8 @@ text.print "Mini Micro " + version.host
 text.print "MiniScript " + version.miniscript + " on " + version.platform
 text.print
 
-// Placeholder for the shell (mm/): echo whatever is typed, so the console's
-// line editing can be exercised.  Replace this when the REPL lands.
-while true
-	line = console.inputLine("]")
-	if line == "exit" then break
-	if line != "" then text.print line
-end while
+// The shell owns everything from here.  It seeds a child interpreter from
+// `globals` as it stands right now, so anything a user program should be able
+// to see has to exist by this line.
+globals.shell = Shell.Make(console)
+shell.run
