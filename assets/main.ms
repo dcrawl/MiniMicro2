@@ -49,7 +49,7 @@ diskEjectedSound = raylib.LoadSound("/hw/sounds/disk-ejected.wav")	// (for the s
 import "importUtil"
 
 ensureImport ["color", "Image", "Sound", "Display", "SolidColorDisplay", "PixelDisplay",
-  "SpriteDisplay", "TileDisplay", "TextDisplay", "mouse", "key"]
+  "SpriteDisplay", "TileDisplay", "TextDisplay", "mouse", "key", "Console"]
 
 // Our screen is the 960x640 area framed by the bezel, not the whole window.
 // Tell the display layer where that is; everything sizes and centers itself
@@ -124,12 +124,23 @@ _handleDrops = function
 	file.clearDroppedFiles
 end function
 
+// The console owns key input: its update collects keys (with repeat, and with
+// the control chords raylib does not report as characters) into key.keyQueue,
+// which is why key.update is NOT in the list below -- running both would
+// deliver every special key twice.  Mouse update comes first, since the
+// console's selection dragging reads mouse.x/y.
+globals.console = Console.Make(text)
+
+_consoleUpdate = function
+	console.update
+end function
+
 // updateCallbacks: a list of methods to call on every frame.  This includes standard
 // Soda update methods, but you may add your own methods to ensure they are invoked
 // at update time as well.
 updateCallbacks = [
 	@mouse.update,
-	@key.update,
+	@_consoleUpdate,
 	@Sound.UpdateAll,
 ]
 
@@ -150,7 +161,7 @@ _update = function(beginEndRaylibDrawing = true)
 	Display.RenderAll
 	raylib.EndMode2D
 	raylib.DrawTexture bezelTexture, 0, 0, bezelColor
-	for f in _updateCallbacks; f; end for
+	for f in updateCallbacks; f; end for
 	raylib.DrawTextureEx stickerTexture, 
 	  [window.width - 56 - 32, window.height - 42 - 24],
 	  0, 64 / stickerTexture.width, raylib.WHITE
@@ -183,14 +194,14 @@ end function
 // through /hw only because the host mounted it before running this file.
 file.enterSandbox
 
-gfx.drawRect 0, 0, 960, 640, color.lime
-gfx.line 0, 0, 960, 640, color.lime
-gfx.line 960, 0, 0, 640, color.lime
-
 text.print "Mini Micro " + version.host
 text.print "MiniScript " + version.miniscript + " on " + version.platform
 text.print
 
-while not key.pressed("escape")
-	yield
+// Placeholder for the shell (mm/): echo whatever is typed, so the console's
+// line editing can be exercised.  Replace this when the REPL lands.
+while true
+	line = console.inputLine("]")
+	if line == "exit" then break
+	if line != "" then text.print line
 end while
