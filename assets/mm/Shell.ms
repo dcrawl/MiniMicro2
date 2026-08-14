@@ -76,6 +76,24 @@ _childEdit = function
 	yield
 end function
 
+// Host intrinsics /sys/startup.ms expects, which Mini Micro 1 provides from
+// Shell.cs and MiniMicroAPI.cs.  Ours are shims: the file module already does
+// the real work, and the editor does not exist yet.
+_childFileReadLines = @file.readLines
+
+_childResetEditorScrollPos = function
+end function
+
+// The boot chime belongs to /sys/startup.ms (it is under env.bootOpts there),
+// so main.ms loads the sound but does not play it.  Nested, because a function
+// seeded into the child resolves its free variables in the *child's* globals,
+// where the sound deliberately is not -- only a closure can carry it across.
+_makeStartupChime = function(snd)
+	return function
+		if snd != null then raylib.PlaySound snd
+	end function
+end function
+
 // Names the shell keeps to itself.  Seeding copies our whole globals map, which
 // is the point -- the child gets the entire library layer -- but it would also
 // hand a user program the shell's own console, interpreter, and boot-time
@@ -93,13 +111,16 @@ Shell.console = null
 Shell.interp = null			// the child Interp we run everything in
 Shell.env = null			// the `env` map, shared with the child
 Shell.req = null			// the request map, ditto
+Shell.bootChime = null		// sound for _startupChime; loaded by main.ms
 
 Shell._errShown = false		// interp.error survives until the next line; print it once
 Shell._exiting = false
+Shell._bootStage = 0		// 0: /sys/startup.ms, 1: /usr/startup.ms, 2: at the prompt
 
-Shell.Make = function(console)
+Shell.Make = function(console, bootChime=null)
 	noob = new Shell
 	noob.console = console
+	noob.bootChime = bootChime
 	noob.env = Shell._makeEnv
 	noob.req = {"action": null, "prompt": "", "result": null}
 	console.controlCHandler = @_controlCHandler
@@ -117,6 +138,11 @@ Shell._makeEnv = function
 	env.morePrompt = "...]"
 	env.shell = ""
 	env.importPaths = [".", "/usr/lib", "/sys/lib"]
+	// Read by /sys/startup.ms's _startup.  cmdLineArgs is empty because the host
+	// does not hand argv to script at all yet; bootOpts is the hook for turning
+	// the chime and the welcome banner off.
+	env.cmdLineArgs = []
+	env.bootOpts = {}
 	return env
 end function
 
@@ -139,6 +165,9 @@ Shell.reset = function
 	self.interp.setGlobal "wait", @_childWait
 	self.interp.setGlobal "_run", @_childRun
 	self.interp.setGlobal "_edit", @_childEdit
+	self.interp.setGlobal "_fileReadLines", @_childFileReadLines
+	self.interp.setGlobal "_resetEditorScrollPos", @_childResetEditorScrollPos
+	self.interp.setGlobal "_startupChime", _makeStartupChime(self.bootChime)
 	self._errShown = false
 end function
 
@@ -177,9 +206,49 @@ Shell.update = function
 	else if not self.interp.done then
 		self.interp.runUntilDone 0.03
 		self._afterSlice
+	else if self._bootStage < 2 then
+		self._nextBootStage
 	else if not con.inputInProgress then
 		self._startPrompt
 	end if
+end function
+
+//----------------------------------------------------------------------
+// Boot
+//----------------------------------------------------------------------
+
+// Two startup scripts, in Mini Micro 1's order (Shell.cs, Start()):
+//
+//   /sys/startup.ms   the rest of the shell, really -- load, run, save, source,
+//                     clear, reset and welcome are all defined there, not here.
+//   /usr/startup.ms   the user's, run as a program if their disk has one.
+//
+// Both are global-scope code in the child, so both go through the same call;
+// neither can be run inline, since either may yield, wait, or ask for input,
+// and the frame loop is what keeps the screen alive while it does.
+Shell._nextBootStage = function
+	stage = self._bootStage
+	self._bootStage = stage + 1
+	if stage == 0 then
+		self._loadFile "/sys/startup.ms"
+	else if stage == 1 then
+		self._loadFile "/usr/startup.ms"
+	end if
+end function
+
+// Hand the child a whole file to run, keeping its globals -- which is the point
+// for /sys/startup.ms, whose whole job is to define them.  Missing is not an
+// error: /usr may be unmounted, or simply have no startup script.
+Shell._loadFile = function(path)
+	if not file.exists(path) then return
+	lines = file.readLines(path)
+	if lines == null then
+		self.printLine "Unable to read " + path
+		return
+	end if
+	self._errShown = false
+	self.interp.loadKeepingGlobals lines.join(char(10))
+	self._afterSlice
 end function
 
 Shell._handleLine = function(line)

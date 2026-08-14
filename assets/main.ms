@@ -35,8 +35,10 @@ raylib.SetTargetFPS 60
 // Our own resources live on /hw, the hardware disk: the host mounts this
 // file's directory there at boot.  These used to be written relative to the
 // working directory, which broke for a packaged app launched from the Finder.
+// The chime is played by /sys/startup.ms, through the _startupChime the shell
+// seeds for it -- that is where env.bootOpts can turn it off.  Loaded here
+// because /hw is ours, not the shell's.
 bootupSound = raylib.LoadSound("/hw/sounds/startup-chime.wav")
-raylib.PlaySound bootupSound
 
 bezelTexture = raylib.LoadTexture("/hw/images/3DBezel.png")
 bezelColor = [218, 208, 185, 255]
@@ -201,5 +203,5 @@ text.print
 // The shell owns everything from here.  It seeds a child interpreter from
 // `globals` as it stands right now, so anything a user program should be able
 // to see has to exist by this line.
-globals.shell = Shell.Make(console)
+globals.shell = Shell.Make(console, bootupSound)
 shell.run

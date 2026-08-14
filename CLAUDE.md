@@ -82,7 +82,7 @@ Anything put directly in `assets/` is invisible to script; anything dropped in
 
 Mounting a user disk is always the user's choice, never a program's: script may
 *request* a mount but can never name the target.  Drag and drop is the route
-that works today — `handleDrops` in `main.ms`, called from `_update` — and a
+that works today — `_handleDrops` in `main.ms`, called from `_update` — and a
 native file picker is still to come.  `file.mountAppData` mounts a subfolder of
 our own app data directory, which a program may name because it cannot escape
 it.  `-usr <path>` and `-usr2 <path>` on the command line are for testing and
@@ -106,9 +106,9 @@ and a file handle buffers in memory, so **an unclosed handle loses its writes**.
 The raylib bindings are routed too, and the ones that cannot be made safe —
 `GetWorkingDirectory`, `GetApplicationDirectory`, `ChangeDirectory`,
 `TakeScreenshot`, `OpenURL`, `LoadDroppedFiles`, the `Set*FileCallback` hooks —
-refuse once sandboxed, returning empty rather than raising.  `import` searches
-only the directories frozen at the latch, so setting `env.MS_IMPORT_PATH`
-afterwards does nothing.  `http.post` accepts only http and https URLs.
+refuse once sandboxed, returning empty rather than raising.  `import` switches
+search paths at the latch (see below).  `http.post` accepts only http and https
+URLs.
 
 raylib's `LoadDroppedFiles` returns real host paths, so it is refused; the
 sandboxed replacement is in the `file` module — `file.droppedFiles` (base names
@@ -124,14 +124,28 @@ key events); position is the only context a drop carries.  A dropped file that
 is not a folder cannot be mounted or read at all until the zip backend lands.
 
 ### Import path
-`main.ms` sets `MS_IMPORT_PATH` to `$MS_SCRIPT_DIR : <assets>/mm : <assets>/lib`.
-The last two are absolute paths resolved once at boot, deliberately: the host
-repoints `MS_SCRIPT_DIR` at every script it runs, and running user programs is
-Mini Micro's whole job.  The first entry stays a live variable so a user program
-can import modules sitting next to it.
+There are two, and the latch is the switch between them.
 
-Watch for shadowing: `$MS_SCRIPT_DIR` comes first, so a file named after an
-engine module overrides it, and the failure surfaces somewhere unrelated.
+**Before it — boot only.**  `main.ms` sets `MS_IMPORT_PATH` to
+`$MS_SCRIPT_DIR : <assets>/mm : <assets>/lib`, real host directories, which is
+how the engine layer and the shell get imported at all.  The last two are
+absolute paths resolved once at boot, deliberately: the host repoints
+`MS_SCRIPT_DIR` at every script it runs.  Watch for shadowing: `$MS_SCRIPT_DIR`
+comes first, so a file named after an engine module overrides it, and the
+failure surfaces somewhere unrelated.
+
+**After it — everything a program does.**  `import` searches `env.importPaths`,
+a list of *virtual* paths, default `[".", "/usr/lib", "/sys/lib"]` (`"."` is the
+virtual cwd) — Mini Micro 1's convention, and the shell seeds it in
+`Shell._makeEnv`.  Nothing else is searched: `<assets>/lib` is not a disk, so a
+user program cannot import the engine layer's *source*, only use the modules the
+shell already seeded into its globals.  The list is live rather than frozen,
+because a virtual path cannot name anything outside the mounts anyway.
+
+Since it is read from the calling VM's `env`, a child interpreter searches its
+own — and a VM whose `env` is still the host intrinsic rather than a map cannot
+import at all.  That is fine for `main.ms`, which does all its importing above
+the latch, and would bite anything that tried to import below it.
 
 ### The screen rect and the bezel
 The window is 1024x768; the Mini Micro screen is the 960x640 area inside the
@@ -169,12 +183,37 @@ Assigning to `.mode`, `.row`, `.column`, `.extent` silently does nothing.
   `Shell.ms` (the REPL) work.  The shell runs everything in a child `Interp`
   (a host class; see `../raylib-miniscript/notes/HOSTING_MS.md`) seeded from
   our globals, stepped one 30 ms slice per frame.
-- ⏳ Shell: booting `/sys/startup.ms`, autocomplete, editor, file browser
+- ⏳ Shell: running a program (see below), autocomplete, editor, file browser
 - ✅ File system: `/hw` and `/sys` mounted read-only at boot; `file.enterSandbox`
   latched at the end of `main.ms`
 - ✅ File system: `/usr` and `/usr2` mountable by drag and drop, remembered in
   prefs; ⏳ native file picker, ⏳ `.minidisk` (zip) disks
 - ⏳ Packaging: per-platform app bundles
+
+## Running a program: what boot still needs
+
+Mini Micro's own boot is `/sys/startup.ms`, and almost everything a user thinks
+of as the shell — `load`, `run`, `save`, `source`, `clear`, `reset`, `welcome` —
+is defined there, not in `mm/`.  Mini Micro 1 runs it through the REPL so those
+land in globals, then runs `/usr/startup.ms` as a *program* if the disk has one
+(`Shell.cs`, `Start()`).  We do the same: `interp.loadKeepingGlobals` for both,
+since it is global scope either way.
+
+The shell's half of this already exists — `_childRun` sets `req.action = "run"`
+and `_serveRequest` reloads the child from `_source`.  What is missing is
+everything `/sys/startup.ms` reaches for that we do not yet provide:
+
+- Host intrinsics MM1 has and we do not: `_fileReadLines`, `_startupChime`,
+  `_resetEditorScrollPos` (`Shell.cs`, `MiniMicroAPI.cs`).  The first two are
+  small; the third can be a stub until the editor lands.
+- `env.cmdLineArgs`, `env.bootOpts`, and `version.buildDate`.
+- `http.get` — the host has only `http.post`.  Needed by `loadCodeFromURL`,
+  not by boot, so it can come later.
+- **MS2 assignment gotchas in the sysdisk itself**: `clear` and `welcome` use
+  `display(i).mode = ...` and `text.row = 25`, which silently do nothing here.
+  About ten lines, all in `startup.ms`.  Fixing them means editing
+  minimicro-sysdisk, which Mini Micro 1 also ships — so either the change has to
+  work in both, or the two disks fork.  Unresolved; ask before touching it.
 
 ## Reference Files to Check
 When implementing a Mini Micro feature, check the Unity version first:

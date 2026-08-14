@@ -443,8 +443,15 @@ Console._blinkCursor = function
 	d = self.display
 	if not d.cursorShown then return
 	period = d.cursorOnTime + d.cursorOffTime
-	c = d._cellAt(d.row, d.column)
-	if c != null then c.inverse = (time - self._blinkStart) % period < d.cursorOnTime
+	// Through the display's own show/hide rather than poking the cell: those
+	// keep the cursor's color in step with text.color, so a color changed while
+	// the cursor is just sitting at the prompt takes effect on the next frame
+	// rather than at the next `clear`.
+	if (time - self._blinkStart) % period < d.cursorOnTime then
+		d._showCursorVisual
+	else
+		d._hideCursorVisual
+	end if
 end function
 
 //----------------------------------------------------------------------
