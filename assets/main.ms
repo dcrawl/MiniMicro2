@@ -196,9 +196,7 @@ end function
 // through /hw only because the host mounted it before running this file.
 file.enterSandbox
 
-text.print "Mini Micro " + version.host
-text.print "MiniScript " + version.miniscript + " on " + version.platform
-text.print
+file.setdir "/usr"
 
 // The shell owns everything from here.  It seeds a child interpreter from
 // `globals` as it stands right now, so anything a user program should be able
